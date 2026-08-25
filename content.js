@@ -95,7 +95,12 @@
       gstr3bTitle: "GSTR-3B",
       gstr3bAliases: ["GSTR-3B", "GSTR3B"],
       gstr3bExcludeAliases: [],
-      downloadActions: ["DOWNLOAD", "PREPARE OFFLINE", "GENERATE"],
+      /* Two tiers, tried in order. A tile that already has a generated file
+       * shows Download; a tile that does not shows Prepare Offline instead,
+       * which asks the portal to build the file first. Always prefer the
+       * direct download and fall back only when it is absent. */
+      downloadActions: ["DOWNLOAD"],
+      prepareOfflineActions: ["PREPARE OFFLINE", "GENERATE", "GENERATE FILE"],
       noRecords: ["NO RECORDS FOUND", "NO DATA"]
     },
 
@@ -400,19 +405,32 @@
     return null;
   }
 
-  /* Find the download style action inside a tile, again by text. */
+  /*
+   * Find the action to click inside a tile, by text, in preference order.
+   * Download is tried first because it pulls an already generated file.
+   * When the tile offers no Download control, fall back to Prepare Offline,
+   * which asks the portal to generate the file and usually navigates to the
+   * offline screen. Returns null when neither tier matches.
+   */
   function findTileAction(tile) {
-    var wanted = PORTAL_SELECTORS.text.downloadActions.map(normalize);
+    var tiers = [
+      { name: "download", labels: PORTAL_SELECTORS.text.downloadActions },
+      { name: "prepareOffline", labels: PORTAL_SELECTORS.text.prepareOfflineActions }
+    ];
     var actions = tile.querySelectorAll(PORTAL_SELECTORS.tileActions);
-    for (var i = 0; i < actions.length; i++) {
-      var node = actions[i];
-      if (!isVisible(node)) {
-        continue;
-      }
-      var label = normalize(node.textContent);
-      for (var j = 0; j < wanted.length; j++) {
-        if (label.indexOf(wanted[j]) !== -1) {
-          return node;
+
+    for (var t = 0; t < tiers.length; t++) {
+      var wanted = tiers[t].labels.map(normalize);
+      for (var i = 0; i < actions.length; i++) {
+        var node = actions[i];
+        if (!isVisible(node)) {
+          continue;
+        }
+        var label = normalize(node.textContent);
+        for (var j = 0; j < wanted.length; j++) {
+          if (label.indexOf(wanted[j]) !== -1) {
+            return { node: node, tier: tiers[t].name, label: label };
+          }
         }
       }
     }
@@ -569,12 +587,17 @@
     }
     var action = findTileAction(tile);
     if (!action) {
-      throw new Error("No download action inside the " + job.returnType + " tile for " + month);
+      throw new Error("No download or prepare offline action inside the " +
+                      job.returnType + " tile for " + month);
+    }
+    if (action.tier === "prepareOffline") {
+      log("No download control on the " + job.returnType + " tile, falling back to " +
+          action.label.toLowerCase() + ".", "warn");
     }
 
-    log("Clicking " + normalize(action.textContent).toLowerCase() + " on the " +
+    log("Clicking " + action.label.toLowerCase() + " on the " +
         job.returnType + " tile.", "step");
-    realClick(action);
+    realClick(action.node);
     await sleep(job.delay);
     await waitForIdle();
 

@@ -118,8 +118,11 @@ Now click **Search** manually and wait for the tiles:
      .flatMap(t => [...t.querySelectorAll("button, a.btn, a[href]")])
      .map(b => b.textContent.trim()).filter(Boolean);
    ```
-   Every label you want the extension to click must appear in
-   `PORTAL_SELECTORS.text.downloadActions`.
+   Every label you want the extension to click must appear in either
+   `PORTAL_SELECTORS.text.downloadActions` or
+   `PORTAL_SELECTORS.text.prepareOfflineActions`. The two lists are tried in
+   that order: a direct Download is preferred, and Prepare Offline is used only
+   when the tile offers no Download control.
 10. `q("div.alert-danger, div.err, span.err")`
     Error banner. Search a period you never filed to see the real wording, then
     put that wording in `PORTAL_SELECTORS.text.noRecords`.
@@ -146,6 +149,13 @@ The portal is an AngularJS application, which means two things:
 - `element.click()` skips `mousedown` and `mouseup`, which some controls listen
   for. `realClick` dispatches `mouseover`, `mousedown`, `mouseup` and `click` as
   real `MouseEvent` objects with coordinates.
+
+Tile actions are also two tiered. A tile that already has a generated file
+shows Download; one that does not shows Prepare Offline. `findTileAction` tries
+`downloadActions` across every visible control in the tile first and only then
+tries `prepareOfflineActions`, logging a warning when it falls back. Prepare
+Offline normally lands on the offline screen, which the engine then drives with
+`offlineGenerateButton` and `offlineDownloadLink`.
 
 Waiting is done by polling (`waitForElement`, `waitForIdle`) wherever a specific
 element or a quiet DOM is the real signal. Blind sleeps are used only as settle
