@@ -1,0 +1,13 @@
+# Packed extension artifacts
+*.pem
+*.crx
+*.zip
+
+# Node tooling is not used by this project, but keep the folder out of git
+node_modules/
+
+# Editor and OS noise
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

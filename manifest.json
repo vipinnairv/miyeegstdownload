@@ -1,0 +1,28 @@
+{
+  "manifest_version": 3,
+  "name": "GST Returns Bulk Downloader",
+  "version": "1.0.0",
+  "description": "Automates selecting periods and downloading GSTR-1 and GSTR-3B returns from the GST portal returns dashboard.",
+  "minimum_chrome_version": "102",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage",
+    "downloads"
+  ],
+  "host_permissions": [
+    "https://*.gst.gov.in/*"
+  ],
+  "action": {
+    "default_title": "GST Returns Bulk Downloader",
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://*.gst.gov.in/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ]
+}
