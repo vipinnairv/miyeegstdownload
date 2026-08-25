@@ -124,6 +124,8 @@
   var WAIT_TIMEOUT = 30000;
   var IDLE_TIMEOUT = 30000;
   var FAILURE_COOLDOWN_MULTIPLIER = 2.5;
+  /* Extra attempts allowed for a period that failed on a timeout only. */
+  var TIMEOUT_RETRIES = 1;
   var STORAGE_KEY = "gstJobState";
 
   var QUARTER_OF_MONTH = {
@@ -172,6 +174,14 @@
   function AbortError(message) {
     var err = new Error(message || "Aborted by user");
     err.name = "AbortError";
+    return err;
+  }
+
+  /* Tagged separately from other failures because a timeout is often just a
+   * slow portal response and is worth one more attempt. */
+  function TimeoutError(message) {
+    var err = new Error(message);
+    err.name = "TimeoutError";
     return err;
   }
 
@@ -235,7 +245,7 @@
       }
       await sleep(ABORT_TICK);
     }
-    throw new Error("Timed out waiting for " + label);
+    throw TimeoutError("Timed out waiting for " + label);
   }
 
   /* Same as waitForElement but resolves to null instead of throwing. */
@@ -658,17 +668,40 @@
         await saveState(state);
 
         log("Period " + month + " starting.", "info");
-        try {
-          await downloadForMonth(job, month);
-          state.completed = (state.completed || []).concat([month]);
-        } catch (err) {
-          if (err && err.name === "AbortError") {
-            throw err;
+        var cooldown = Math.round(job.delay * FAILURE_COOLDOWN_MULTIPLIER);
+        var attempt = 0;
+        var lastError = null;
+
+        /* Timeouts get one more attempt after a cooldown, since they usually
+         * mean the portal was slow rather than that the period is unavailable.
+         * Every other failure is final for this period. */
+        while (true) {
+          try {
+            await downloadForMonth(job, month);
+            lastError = null;
+            break;
+          } catch (err) {
+            if (err && err.name === "AbortError") {
+              throw err;
+            }
+            lastError = err;
+            if (err.name !== "TimeoutError" || attempt >= TIMEOUT_RETRIES) {
+              break;
+            }
+            attempt++;
+            log(month + " timed out: " + err.message + ". Retry " + attempt +
+                " of " + TIMEOUT_RETRIES + " after a cooldown.", "warn");
+            await sleep(cooldown);
           }
+        }
+
+        if (lastError) {
           state.failed = (state.failed || []).concat([month]);
-          log(month + " failed: " + err.message + ". Skipping to the next period.", "error");
+          log(month + " failed: " + lastError.message + ". Skipping to the next period.", "error");
           /* Longer cooldown so the portal is not hammered after a failure. */
-          await sleep(Math.round(job.delay * FAILURE_COOLDOWN_MULTIPLIER));
+          await sleep(cooldown);
+        } else {
+          state.completed = (state.completed || []).concat([month]);
         }
 
         state.current = null;

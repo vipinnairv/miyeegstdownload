@@ -169,7 +169,11 @@ Normal after reloading the extension. The popup pings the page and falls back to
 with `window.__gstBulkDownloaderLoaded`.
 
 **"Timed out waiting for ..."**
-The named selector no longer matches. Run the checklist entry for it.
+The named selector no longer matches, or the portal was simply slow. A period
+that fails on a timeout is retried once after a longer cooldown before it is
+marked failed, so a single warning line followed by a success is normal. If the
+retry times out too, run the checklist entry for the named selector, or raise
+the step delay.
 
 **A period is marked as needing a manual check.**
 The page navigated while that period was in flight. The resume logic records it
