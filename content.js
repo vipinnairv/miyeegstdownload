@@ -64,7 +64,7 @@
 
     /* TODO placeholder: verify on the live portal. Any actionable button or
      * link inside a tile. Matched further by its own text. */
-    tileActions: "button, a.btn, a[href]",
+    tileActions: "button, a, input[type='button'], input[type='submit'], [role='button']",
 
     /* TODO placeholder: verify on the live portal. AJAX loading overlay or
      * spinner that covers the page during a request. */
@@ -104,6 +104,15 @@
        * which asks the portal to build the file first. Always prefer the
        * direct download and fall back only when it is absent. */
       downloadActions: ["DOWNLOAD"],
+      /* Which tile button opens the file, per return. GSTR-1: VIEW, then
+       * DOWNLOAD FILED (PDF) on the next page. GSTR-3B: DOWNLOAD directly. */
+      tileButtonByReturn: {
+        GSTR1: ["VIEW"],
+        GSTR2B: ["DOWNLOAD"],
+        GSTR3B: ["DOWNLOAD"]
+      },
+      /* Returns whose tile button downloads at once, with no detail page. */
+      directDownload: ["GSTR3B"],
       prepareOfflineActions: ["PREPARE OFFLINE", "GENERATE", "GENERATE FILE"],
       noRecords: ["NO RECORDS FOUND", "NO DATA"],
       /* Second page, opened by the tile's DOWNLOAD button: the button that
@@ -413,7 +422,8 @@
     var tiles = document.querySelectorAll(PORTAL_SELECTORS.tileItem);
     for (var i = 0; i < tiles.length; i++) {
       var titleNode = tiles[i].querySelector(PORTAL_SELECTORS.tileTitle);
-      if (titleMatches(normalize(titleNode ? titleNode.textContent : tiles[i].textContent))) {
+      if (titleMatches(normalize(titleNode ? titleNode.textContent : tiles[i].textContent)) &&
+          findTileAction(tiles[i], returnType)) {
         return tiles[i];
       }
     }
@@ -424,7 +434,7 @@
     var best = null;
     for (var d = 0; d < divs.length; d++) {
       var div = divs[d];
-      if (!titleMatches(normalize(div.textContent)) || !div.querySelector("button, a")) {
+      if (!titleMatches(normalize(div.textContent)) || !findTileAction(div, returnType)) {
         continue;
       }
       if (div.textContent.length > 600) {
@@ -444,9 +454,10 @@
    * which asks the portal to generate the file and usually navigates to the
    * offline screen. Returns null when neither tier matches.
    */
-  function findTileAction(tile) {
+  function findTileAction(tile, returnType) {
     var tiers = [
-      { name: "download", labels: PORTAL_SELECTORS.text.downloadActions },
+      { name: "download", labels: (PORTAL_SELECTORS.text.tileButtonByReturn[returnType] ||
+                                   PORTAL_SELECTORS.text.downloadActions) },
       { name: "prepareOffline", labels: PORTAL_SELECTORS.text.prepareOfflineActions }
     ];
     var actions = tile.querySelectorAll(PORTAL_SELECTORS.tileActions);
@@ -458,7 +469,7 @@
         if (!isVisible(node)) {
           continue;
         }
-        var label = normalize(node.textContent);
+        var label = normalize(node.textContent || node.value || node.getAttribute("aria-label"));
         for (var j = 0; j < wanted.length; j++) {
           if (label.indexOf(wanted[j]) !== -1) {
             return { node: node, tier: tiers[t].name, label: label };
@@ -651,7 +662,7 @@
     if (!tile) {
       throw new Error("No " + job.returnType + " tile found for " + month);
     }
-    var action = findTileAction(tile);
+    var action = findTileAction(tile, job.returnType);
     if (!action) {
       throw new Error("No download or prepare offline action inside the " +
                       job.returnType + " tile for " + month);
@@ -668,7 +679,8 @@
     await waitForIdle();
 
     /* The tile button opens a detail page with the real download button. */
-    var detail = await waitForControl(PORTAL_SELECTORS.text.detailActions, 15000);
+    var direct = PORTAL_SELECTORS.text.directDownload.indexOf(job.returnType) !== -1;
+    var detail = direct ? null : await waitForControl(PORTAL_SELECTORS.text.detailActions, 15000);
     if (detail) {
       log("Detail page open, clicking " + detail.label.toLowerCase() + ".", "step");
       realClick(detail.node);
@@ -678,7 +690,7 @@
 
     /* Some flows land on the offline screen, which needs a second click and
      * navigates away from the dashboard. */
-    var generate = detail ? null : await waitForElementOptional(PORTAL_SELECTORS.offlineGenerateButton, {
+    var generate = (detail || direct) ? null : await waitForElementOptional(PORTAL_SELECTORS.offlineGenerateButton, {
       timeout: 8000
     });
     if (generate) {
