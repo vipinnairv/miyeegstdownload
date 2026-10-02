@@ -931,7 +931,7 @@
       state.status = "finished";
       await saveState(state);
       push({ type: "JOB_EVENT", event: "finished", level: "ok",
-             message: "Done. " + state.completed.length + " succeeded, " +
+             message: "Done. " + (state.completed || []).length + " succeeded, " +
                       (state.failed || []).length + " failed." });
     }
 
