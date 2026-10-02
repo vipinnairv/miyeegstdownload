@@ -92,6 +92,10 @@
       gstr1Title: "GSTR-1",
       gstr1Aliases: ["GSTR-1", "GSTR1"],
       gstr1ExcludeAliases: ["GSTR-1A", "GSTR1A", "GSTR-1 IFF", "IFF"],
+      gstr2bAliases: ["GSTR-2B", "GSTR2B"],
+      gstr2bExcludeAliases: [],
+      /* Portal wording when a file is still being built. */
+      inProgress: ["IN PROGRESS", "COME BACK AFTER", "BEING GENERATED", "AFTER 20 MINUTES"],
       gstr3bTitle: "GSTR-3B",
       gstr3bAliases: ["GSTR-3B", "GSTR3B"],
       gstr3bExcludeAliases: [],
@@ -373,6 +377,9 @@
 
   function tileMatchers(returnType) {
     var t = PORTAL_SELECTORS.text;
+    if (returnType === "GSTR2B") {
+      return { include: t.gstr2bAliases, exclude: t.gstr2bExcludeAliases };
+    }
     if (returnType === "GSTR3B") {
       return { include: t.gstr3bAliases, exclude: t.gstr3bExcludeAliases };
     }
@@ -630,6 +637,15 @@
       } else {
         log("Generation started but no download link appeared yet for " + month + ".", "warn");
       }
+    }
+
+    var pageText = normalize(document.body.textContent);
+    var busyPhrase = PORTAL_SELECTORS.text.inProgress.filter(function (p) {
+      return pageText.indexOf(p) !== -1;
+    })[0];
+    if (busyPhrase) {
+      log(month + ": portal says the file is still generating (\"" + busyPhrase +
+          "\"). Come back in about 20 minutes and run this period again.", "warn");
     }
 
     log(month + " handled.", "ok");

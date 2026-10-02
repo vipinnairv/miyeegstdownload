@@ -198,3 +198,30 @@ the portal at any time.
 Always verify every downloaded return against the portal before relying on it
 for filing, reconciliation or audit. The authors accept no liability for missing
 files, wrong periods, or any consequence of using this software. See `LICENSE`.
+
+## Selenium app (`gst_downloader.py`)
+
+A no-extension alternative that drives your local Chrome and also fetches
+**GSTR-2B**.
+
+```
+pip install -r requirements.txt
+python gst_downloader.py                       # uses TARGETS at the top of the file
+python gst_downloader.py --fy 2024-25 --months April May --returns GSTR-2B
+```
+
+- Edit `DOWNLOAD_DIR`, `RETURNS`, `TARGETS` (list of FY/month dicts) and
+  `QRMP_FILER` at the top of the file.
+- Chrome opens the login page and the script pauses; log in (CAPTCHA/OTP),
+  open the Returns Dashboard, press Enter in the terminal.
+- Files are saved to `DOWNLOAD_DIR/<FY>/<Month>/<RETURN>_<FY>_<Month>.<ext>`;
+  `results.csv` and `gst_downloader.log` summarise each period.
+- Unfiled periods are logged as SKIPPED and the run continues. If the portal
+  says a file is still generating, the period is queued, the session is kept
+  alive, and it is retried after `PENDING_RETRY_AFTER_MINUTES`.
+- Chromedriver is handled by `webdriver-manager`, or pass `--chromedriver`.
+
+**Not yet verified against the live portal.** All locators (`DROPDOWNS`,
+`RETURN_SPECS`, phrase lists) are relative XPaths on visible text and are best
+guesses; confirm each once in DevTools and adjust them in that one section.
+The extension also gained a GSTR-2B option and an "in progress" warning.
