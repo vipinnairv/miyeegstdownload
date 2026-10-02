@@ -1,4 +1,6 @@
-# GST Returns Bulk Downloader
+# MiyeeIndia GST Return Downloader
+
+by Vipin Nair
 
 A Chrome and Edge Manifest V3 extension that automates the repetitive part of
 pulling GSTR-1 and GSTR-3B returns from the Indian GST portal

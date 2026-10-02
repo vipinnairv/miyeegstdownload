@@ -1,7 +1,7 @@
 "use strict";
 
 /*
- * GST Returns Bulk Downloader, page engine.
+ * MiyeeIndia GST Return Downloader by Vipin Nair, page engine.
  *
  * Runs on gst.gov.in. Drives the Returns Dashboard form, waits for the AJAX
  * tile grid, then clicks the download control on the tile that matches the
@@ -145,6 +145,7 @@
   /* Extra attempts allowed for a period that failed on a timeout only. */
   var TIMEOUT_RETRIES = 1;
   var STORAGE_KEY = "gstJobState";
+  var DASHBOARD_URL = "https://return.gst.gov.in/returns/auth/dashboard";
 
   var QUARTER_OF_MONTH = {
     April: "Q1", May: "Q1", June: "Q1",
@@ -581,6 +582,10 @@
 
   async function ensureDashboard(delay) {
     if (onDashboard()) {
+      if (runtime.state && runtime.state.navAttempts) {
+        runtime.state.navAttempts = 0;
+        await saveState(runtime.state);
+      }
       return true;
     }
     log("Not on the Returns Dashboard, trying the back link.", "warn");
@@ -591,7 +596,28 @@
       await waitForIdle();
     }
     var field = await waitForElementOptional(PORTAL_SELECTORS.financialYearSelect, { timeout: 15000 });
-    return !!field;
+    if (field) {
+      return true;
+    }
+
+    /* Still elsewhere on the portal (another menu, a sub page). Open the
+     * Returns Dashboard directly; the page reloads and the saved job resumes
+     * with this period still pending. Give up after a few tries, which
+     * usually means the session has logged out. */
+    var st = runtime.state;
+    if (st) {
+      st.navAttempts = (st.navAttempts || 0) + 1;
+      if (st.navAttempts > 3) {
+        throw new Error("Could not open the Returns Dashboard. Log in to the portal and start again");
+      }
+      st.current = null;
+      st.stage = null;
+      await saveState(st);
+    }
+    log("Opening the Returns Dashboard.", "step");
+    location.href = DASHBOARD_URL;
+    await sleep(30000); /* the page unloads before this ends */
+    return false;
   }
 
   async function selectPeriod(job, month) {
@@ -974,7 +1000,7 @@
     if (onDashboard()) {
       runJob(state);
     } else {
-      location.href = "https://return.gst.gov.in/returns/auth/dashboard";
+      location.href = DASHBOARD_URL;
     }
   }
 
