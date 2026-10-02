@@ -108,7 +108,7 @@
        * DOWNLOAD FILED (PDF) on the next page. GSTR-3B: DOWNLOAD directly. */
       tileButtonByReturn: {
         GSTR1: ["VIEW"],
-        GSTR2B: ["DOWNLOAD"],
+        GSTR2B: ["VIEW"],
         GSTR3B: ["DOWNLOAD"]
       },
       /* Returns whose tile button downloads at once, with no detail page. */
@@ -117,7 +117,7 @@
       noRecords: ["NO RECORDS FOUND", "NO DATA"],
       /* Second page, opened by the tile's DOWNLOAD button: the button that
        * actually produces the file. Seen on the live portal for GSTR-1. */
-      detailActions: ["DOWNLOAD FILED (PDF)", "DOWNLOAD FILED", "GENERATE EXCEL FILE TO DOWNLOAD",
+      detailActions: ["DOWNLOAD GSTR-2B DETAILS (EXCEL)", "DOWNLOAD FILED (PDF)", "DOWNLOAD FILED", "GENERATE EXCEL FILE TO DOWNLOAD",
                       "GENERATE JSON FILE TO DOWNLOAD", "DOWNLOAD FILE"],
       backActions: ["BACK"]
     },
@@ -438,6 +438,14 @@
       var codes = gstrCodes(el.textContent).filter(function (code, idx, all) {
         return all.indexOf(code) === idx;
       });
+      /* GSTR-2B has a monthly and a quarterly tile: QRMP filers want the
+       * "for the quarter" one, monthly filers the "for the month" one. */
+      if (wanted === "GSTR2B") {
+        var qrmp = runtime.state && runtime.state.job && runtime.state.job.filerType === "qrmp";
+        if (normalize(el.textContent).indexOf(qrmp ? "FOR THE QUARTER" : "FOR THE MONTH") === -1) {
+          continue;
+        }
+      }
       if (codes.length === 1 && codes[0] === wanted && findTileAction(el, returnType)) {
         return el;
       }
