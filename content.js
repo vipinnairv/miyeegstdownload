@@ -433,7 +433,12 @@
       if (!el || el === document.body) {
         continue;
       }
-      if (gstrCodes(el.textContent).indexOf(wanted) !== -1 && findTileAction(el, returnType)) {
+      /* A real tile names exactly one return; a wrapper around several tiles
+       * names many and must not be used. */
+      var codes = gstrCodes(el.textContent).filter(function (code, idx, all) {
+        return all.indexOf(code) === idx;
+      });
+      if (codes.length === 1 && codes[0] === wanted && findTileAction(el, returnType)) {
         return el;
       }
     }
@@ -464,7 +469,10 @@
         }
         var label = normalize(node.textContent || node.value || node.getAttribute("aria-label"));
         for (var j = 0; j < wanted.length; j++) {
-          if (label.indexOf(wanted[j]) !== -1) {
+          /* Whole-word start match: "DOWNLOAD" must not match the page's
+           * "DOWNLOADS" menu. */
+          if (label === wanted[j] || label.indexOf(wanted[j] + " ") === 0 ||
+              label.indexOf(wanted[j] + "(") === 0) {
             return { node: node, tier: tiers[t].name, label: label };
           }
         }
@@ -635,7 +643,17 @@
     }
   }
 
-  async function downloadForMonth(job, month) {
+  /* Period keys are "2025-26 June" (multi-year jobs) or just "June". */
+  function splitPeriod(job, key) {
+    var parts = String(key).split(" ");
+    return parts.length === 2 ? { fy: parts[0], month: parts[1] }
+                              : { fy: job.financialYear, month: key };
+  }
+
+  async function downloadForMonth(baseJob, key) {
+    var period = splitPeriod(baseJob, key);
+    var job = Object.assign({}, baseJob, { financialYear: period.fy });
+    var month = period.month;
     await ensureDashboard(job.delay);
     await selectPeriod(job, month);
     await runSearch(job);

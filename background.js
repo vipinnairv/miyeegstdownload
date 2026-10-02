@@ -33,8 +33,9 @@ chrome.downloads.onDeterminingFilename.addListener(function (item, suggest) {
     var original = item.filename || "";
     var dot = original.lastIndexOf(".");
     var ext = dot > -1 ? original.slice(dot) : ".pdf";
-    var fy = safe(state.job.financialYear);
-    var month = safe(state.current);
+    var parts = String(state.current).split(" ");
+    var fy = safe(parts.length === 2 ? parts[0] : state.job.financialYear);
+    var month = safe(parts.length === 2 ? parts[1] : state.current);
     var ret = RETURN_LABELS[state.job.returnType] || safe(state.job.returnType);
     suggest({
       filename: "GST/" + fy + "/" + month + "/" + ret + "_" + fy + "_" + month + ext,
