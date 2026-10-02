@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-GST Returns Bulk Downloader (Selenium edition).
+MiyeeIndia GST Return Downloader by Vipin Nair (Selenium edition).
 
 Downloads GSTR-1, GSTR-2B and GSTR-3B from the Indian GST portal for a list
 of financial years and months, using your own local Chrome. No paid

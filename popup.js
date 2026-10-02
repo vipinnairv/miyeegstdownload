@@ -219,6 +219,21 @@ async function ensureContentScript(tabId) {
   return true;
 }
 
+var DASHBOARD_URL = "https://return.gst.gov.in/returns/auth/dashboard";
+
+/* Services > Returns > Returns Dashboard in one click. Reuses the GST tab
+ * when it is the active one, otherwise opens a new tab. The portal sends
+ * you to the login page first if the session has expired. */
+async function goToDashboard() {
+  var tab = await getActiveTab();
+  if (tab && tab.id && /gst\.gov\.in/i.test(tab.url || "")) {
+    chrome.tabs.update(tab.id, { url: DASHBOARD_URL });
+  } else {
+    chrome.tabs.create({ url: DASHBOARD_URL });
+  }
+  log("Opening the Returns Dashboard. Log in first if the portal asks.", "info");
+}
+
 async function onStart() {
   var years = selectedYears();
   var picked = selectedMonths();
@@ -334,6 +349,7 @@ document.addEventListener("DOMContentLoaded", function () {
   el.filerType = $("filerType");
   el.months = $("months");
   el.delay = $("delay");
+  $("goDashboard").addEventListener("click", goToDashboard);
   el.start = $("start");
   el.stop = $("stop");
   el.log = $("log");
