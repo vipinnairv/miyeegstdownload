@@ -64,7 +64,7 @@
 
     /* TODO placeholder: verify on the live portal. Any actionable button or
      * link inside a tile. Matched further by its own text. */
-    tileActions: "button, a.btn, a[href]",
+    tileActions: "button, a, input[type='button'], input[type='submit'], [role='button']",
 
     /* TODO placeholder: verify on the live portal. AJAX loading overlay or
      * spinner that covers the page during a request. */
@@ -413,7 +413,8 @@
     var tiles = document.querySelectorAll(PORTAL_SELECTORS.tileItem);
     for (var i = 0; i < tiles.length; i++) {
       var titleNode = tiles[i].querySelector(PORTAL_SELECTORS.tileTitle);
-      if (titleMatches(normalize(titleNode ? titleNode.textContent : tiles[i].textContent))) {
+      if (titleMatches(normalize(titleNode ? titleNode.textContent : tiles[i].textContent)) &&
+          findTileAction(tiles[i])) {
         return tiles[i];
       }
     }
@@ -424,7 +425,7 @@
     var best = null;
     for (var d = 0; d < divs.length; d++) {
       var div = divs[d];
-      if (!titleMatches(normalize(div.textContent)) || !div.querySelector("button, a")) {
+      if (!titleMatches(normalize(div.textContent)) || !findTileAction(div)) {
         continue;
       }
       if (div.textContent.length > 600) {
@@ -458,7 +459,7 @@
         if (!isVisible(node)) {
           continue;
         }
-        var label = normalize(node.textContent);
+        var label = normalize(node.textContent || node.value || node.getAttribute("aria-label"));
         for (var j = 0; j < wanted.length; j++) {
           if (label.indexOf(wanted[j]) !== -1) {
             return { node: node, tier: tiers[t].name, label: label };
