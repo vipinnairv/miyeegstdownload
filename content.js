@@ -395,31 +395,41 @@
     var matchers = tileMatchers(returnType);
     var excluded = matchers.exclude.map(normalize);
     var included = matchers.include.map(normalize);
-    var tiles = document.querySelectorAll(PORTAL_SELECTORS.tileItem);
 
-    for (var i = 0; i < tiles.length; i++) {
-      var tile = tiles[i];
-      var titleNode = tile.querySelector(PORTAL_SELECTORS.tileTitle);
-      var title = normalize(titleNode ? titleNode.textContent : tile.textContent);
+    function titleMatches(title) {
       if (!title) {
-        continue;
+        return false;
       }
+      var bad = excluded.some(function (x) { return title.indexOf(x) !== -1; });
+      var good = included.some(function (x) { return title.indexOf(x) !== -1; });
+      return good && !bad;
+    }
 
-      var isExcluded = excluded.some(function (bad) {
-        return title.indexOf(bad) !== -1;
-      });
-      if (isExcluded) {
-        continue;
-      }
-
-      var isIncluded = included.some(function (good) {
-        return title.indexOf(good) !== -1;
-      });
-      if (isIncluded) {
-        return tile;
+    var tiles = document.querySelectorAll(PORTAL_SELECTORS.tileItem);
+    for (var i = 0; i < tiles.length; i++) {
+      var titleNode = tiles[i].querySelector(PORTAL_SELECTORS.tileTitle);
+      if (titleMatches(normalize(titleNode ? titleNode.textContent : tiles[i].textContent))) {
+        return tiles[i];
       }
     }
-    return null;
+
+    /* Fallback that ignores class names: the innermost div whose text names
+     * the return and that holds a button or link. */
+    var divs = document.querySelectorAll("div");
+    var best = null;
+    for (var d = 0; d < divs.length; d++) {
+      var div = divs[d];
+      if (!titleMatches(normalize(div.textContent)) || !div.querySelector("button, a")) {
+        continue;
+      }
+      if (div.textContent.length > 600) {
+        continue; /* a page-level wrapper, not a tile */
+      }
+      if (!best || best.contains(div)) {
+        best = div;
+      }
+    }
+    return best;
   }
 
   /*
@@ -579,7 +589,14 @@
     /* Blind settle time only, the polling helpers do the real waiting. */
     await sleep(job.delay);
     await waitForIdle();
-    await waitForElement(PORTAL_SELECTORS.tileGrid, { label: "return tile grid" });
+    /* Wait for the requested tile itself, by text, instead of a class name. */
+    var deadline = Date.now() + WAIT_TIMEOUT;
+    while (!findReturnTile(job.returnType)) {
+      if (Date.now() > deadline) {
+        throw TimeoutError("Timed out waiting for the " + job.returnType + " tile");
+      }
+      await sleep(ABORT_TICK);
+    }
   }
 
   async function downloadForMonth(job, month) {
