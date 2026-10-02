@@ -85,10 +85,15 @@ function selectedMonths() {
   return out;
 }
 
+var QUARTER_END_MONTHS = ["June", "September", "December", "March"];
+
+/* QRMP filers download once per quarter, on the quarter's last month, so
+ * "select all" means the four quarter-end months only. */
 function setAllMonths(state) {
+  var qrmp = el.filerType && el.filerType.value === "qrmp";
   var boxes = el.months.querySelectorAll("input.month-box");
   for (var i = 0; i < boxes.length; i++) {
-    boxes[i].checked = state;
+    boxes[i].checked = state && (!qrmp || QUARTER_END_MONTHS.indexOf(boxes[i].value) !== -1);
   }
 }
 
@@ -320,6 +325,12 @@ document.addEventListener("DOMContentLoaded", function () {
   });
   $("clearAll").addEventListener("click", function () {
     setAllMonths(false);
+  });
+  el.filerType.addEventListener("change", function () {
+    if (el.filerType.value === "qrmp") {
+      setAllMonths(true);
+      log("QRMP: selected the last month of every quarter (Jun, Sep, Dec, Mar).", "info");
+    }
   });
   el.delay.addEventListener("change", readDelay);
   el.start.addEventListener("click", onStart);

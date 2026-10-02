@@ -13,6 +13,9 @@
   "host_permissions": [
     "https://*.gst.gov.in/*"
   ],
+  "background": {
+    "service_worker": "background.js"
+  },
   "action": {
     "default_title": "GST Returns Bulk Downloader",
     "default_popup": "popup.html"
