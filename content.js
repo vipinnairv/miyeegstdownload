@@ -423,6 +423,7 @@
   function findReturnTile(returnType) {
     var wanted = returnType.replace(/[\s-]/g, "").toUpperCase();
     var nodes = document.querySelectorAll(PORTAL_SELECTORS.tileActions);
+    var fallback = null;
     for (var i = 0; i < nodes.length; i++) {
       if (!isVisible(nodes[i])) {
         continue;
@@ -439,19 +440,19 @@
       var codes = gstrCodes(el.textContent).filter(function (code, idx, all) {
         return all.indexOf(code) === idx;
       });
-      /* GSTR-2B has a monthly and a quarterly tile: QRMP filers want the
-       * "for the quarter" one, monthly filers the "for the month" one. */
-      if (wanted === "GSTR2B") {
-        var qrmp = runtime.state && runtime.state.job && runtime.state.job.filerType === "qrmp";
-        if (normalize(el.textContent).indexOf(qrmp ? "FOR THE QUARTER" : "FOR THE MONTH") === -1) {
-          continue;
+      if (codes.length === 1 && codes[0] === wanted && findTileAction(el, returnType)) {
+        /* GSTR-2B has a monthly and a quarterly tile. Always prefer the
+         * "for the quarter" one; use the monthly one only when the page has
+         * no quarterly tile. */
+        if (wanted !== "GSTR2B" || normalize(el.textContent).indexOf("QUARTER") !== -1) {
+          return el;
+        }
+        if (!fallback) {
+          fallback = el;
         }
       }
-      if (codes.length === 1 && codes[0] === wanted && findTileAction(el, returnType)) {
-        return el;
-      }
     }
-    return null;
+    return fallback;
   }
 
   /*
