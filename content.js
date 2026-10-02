@@ -405,46 +405,38 @@
    * GSTR-1 request from landing on the GSTR-1A or IFF tile, whose titles both
    * contain the GSTR-1 substring.
    */
+  /* Return codes named in a piece of text, e.g. "GSTR-1 ... GSTR-2B" gives
+   * ["GSTR1", "GSTR2B"]. */
+  function gstrCodes(text) {
+    var found = normalize(text).match(/GSTR\s*-?\s*\d+[A-Z]?/g) || [];
+    return found.map(function (s) { return s.replace(/[\s-]/g, ""); });
+  }
+
+  /*
+   * Start from every visible control that could open the return, walk up to
+   * the nearest ancestor that names any GSTR code (that is the control's own
+   * tile), and keep it when that code is the one requested. No class names
+   * or size guesses, so it survives portal markup changes.
+   */
   function findReturnTile(returnType) {
-    var matchers = tileMatchers(returnType);
-    var excluded = matchers.exclude.map(normalize);
-    var included = matchers.include.map(normalize);
-
-    function titleMatches(title) {
-      if (!title) {
-        return false;
-      }
-      var bad = excluded.some(function (x) { return title.indexOf(x) !== -1; });
-      var good = included.some(function (x) { return title.indexOf(x) !== -1; });
-      return good && !bad;
-    }
-
-    var tiles = document.querySelectorAll(PORTAL_SELECTORS.tileItem);
-    for (var i = 0; i < tiles.length; i++) {
-      var titleNode = tiles[i].querySelector(PORTAL_SELECTORS.tileTitle);
-      if (titleMatches(normalize(titleNode ? titleNode.textContent : tiles[i].textContent)) &&
-          findTileAction(tiles[i], returnType)) {
-        return tiles[i];
-      }
-    }
-
-    /* Fallback that ignores class names: the innermost div whose text names
-     * the return and that holds a button or link. */
-    var divs = document.querySelectorAll("div");
-    var best = null;
-    for (var d = 0; d < divs.length; d++) {
-      var div = divs[d];
-      if (!titleMatches(normalize(div.textContent)) || !findTileAction(div, returnType)) {
+    var wanted = returnType.replace(/[\s-]/g, "").toUpperCase();
+    var nodes = document.querySelectorAll(PORTAL_SELECTORS.tileActions);
+    for (var i = 0; i < nodes.length; i++) {
+      if (!isVisible(nodes[i])) {
         continue;
       }
-      if (div.textContent.length > 600) {
-        continue; /* a page-level wrapper, not a tile */
+      var el = nodes[i].parentElement;
+      while (el && el !== document.body && !gstrCodes(el.textContent).length) {
+        el = el.parentElement;
       }
-      if (!best || best.contains(div)) {
-        best = div;
+      if (!el || el === document.body) {
+        continue;
+      }
+      if (gstrCodes(el.textContent).indexOf(wanted) !== -1 && findTileAction(el, returnType)) {
+        return el;
       }
     }
-    return best;
+    return null;
   }
 
   /*
