@@ -55,6 +55,17 @@ function buildFinancialYears() {
     frag.appendChild(opt);
   }
   el.fy.appendChild(frag);
+  el.fy.options[0].selected = true;
+}
+
+function selectedYears() {
+  var out = [];
+  for (var i = 0; i < el.fy.options.length; i++) {
+    if (el.fy.options[i].selected) {
+      out.push(el.fy.options[i].value);
+    }
+  }
+  return out.sort(); /* oldest year first */
 }
 
 function buildMonths() {
@@ -85,10 +96,15 @@ function selectedMonths() {
   return out;
 }
 
+var QUARTER_END_MONTHS = ["June", "September", "December", "March"];
+
+/* QRMP filers download once per quarter, on the quarter's last month, so
+ * "select all" means the four quarter-end months only. */
 function setAllMonths(state) {
+  var qrmp = el.filerType && el.filerType.value === "qrmp";
   var boxes = el.months.querySelectorAll("input.month-box");
   for (var i = 0; i < boxes.length; i++) {
-    boxes[i].checked = state;
+    boxes[i].checked = state && (!qrmp || QUARTER_END_MONTHS.indexOf(boxes[i].value) !== -1);
   }
 }
 
@@ -204,11 +220,17 @@ async function ensureContentScript(tabId) {
 }
 
 async function onStart() {
-  var months = selectedMonths();
-  if (!months.length) {
-    log("Select at least one period first.", "error");
+  var years = selectedYears();
+  var picked = selectedMonths();
+  if (!years.length || !picked.length) {
+    log("Select at least one financial year and one period first.", "error");
     return;
   }
+  /* One queue across all years: "2024-25 June", "2024-25 September", ... */
+  var months = [];
+  years.forEach(function (fy) {
+    picked.forEach(function (m) { months.push(fy + " " + m); });
+  });
   var tab = await getActiveTab();
   if (!tab || !tab.id) {
     log("Could not read the active tab.", "error");
@@ -225,7 +247,8 @@ async function onStart() {
   }
 
   var job = {
-    financialYear: el.fy.value,
+    financialYear: years[0],
+    financialYears: years,
     returnType: el.returnType.value,
     filerType: el.filerType.value,
     months: months,
@@ -234,7 +257,7 @@ async function onStart() {
 
   setRunning(true);
   setProgress(0, months.length);
-  log("Starting " + job.returnType + " for FY " + job.financialYear +
+  log("Starting " + job.returnType + " for FY " + years.join(", ") +
       " over " + months.length + " period(s).", "ok");
 
   var reply = await sendToTab(tab.id, { type: "START_JOB", job: job });
@@ -279,13 +302,18 @@ async function restoreState() {
       return;
     }
     if (state.job) {
-      el.fy.value = state.job.financialYear;
+      var years = state.job.financialYears || [state.job.financialYear];
+      for (var y = 0; y < el.fy.options.length; y++) {
+        el.fy.options[y].selected = years.indexOf(el.fy.options[y].value) !== -1;
+      }
       el.returnType.value = state.job.returnType;
       el.filerType.value = state.job.filerType || "monthly";
       el.delay.value = String(state.job.delay || 4000);
       var boxes = el.months.querySelectorAll("input.month-box");
       for (var i = 0; i < boxes.length; i++) {
-        boxes[i].checked = state.job.months.indexOf(boxes[i].value) !== -1;
+        boxes[i].checked = state.job.months.some(function (key) {
+          return key === boxes[i].value || key.split(" ")[1] === boxes[i].value;
+        });
       }
     }
     var done = state.completed ? state.completed.length : 0;
@@ -320,6 +348,12 @@ document.addEventListener("DOMContentLoaded", function () {
   });
   $("clearAll").addEventListener("click", function () {
     setAllMonths(false);
+  });
+  el.filerType.addEventListener("change", function () {
+    if (el.filerType.value === "qrmp") {
+      setAllMonths(true);
+      log("QRMP: selected the last month of every quarter (Jun, Sep, Dec, Mar).", "info");
+    }
   });
   el.delay.addEventListener("change", readDelay);
   el.start.addEventListener("click", onStart);
