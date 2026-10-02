@@ -154,6 +154,7 @@
   };
 
   var runtime = {
+    state: null,
     busy: false,
     abort: false
   };
@@ -666,6 +667,12 @@
 
     log("Clicking " + action.label.toLowerCase() + " on the " +
         job.returnType + " tile.", "step");
+    /* VIEW and some DOWNLOAD buttons load a new page, which destroys this
+     * script. Record the step first so the next page can finish the job. */
+    if (runtime.state) {
+      runtime.state.stage = "detail";
+      await saveState(runtime.state);
+    }
     realClick(action.node);
     await sleep(job.delay);
     await waitForIdle();
@@ -731,6 +738,7 @@
     runtime.busy = true;
     runtime.abort = false;
 
+    runtime.state = state;
     var job = state.job;
     var total = job.months.length;
 
@@ -749,6 +757,7 @@
         }
         var month = queue[i];
         state.current = month;
+        state.stage = null;
         state.status = "running";
         await saveState(state);
 
@@ -890,6 +899,59 @@
    * destroys this content script. When the next page loads, pick the job back
    * up from the first period that is neither completed nor failed.
    */
+  /*
+   * Runs on the page opened by a tile's VIEW button (for GSTR-1 the page with
+   * DOWNLOAD FILED (PDF)). Clicks the download, records the result, then goes
+   * back to the dashboard, where the next page load resumes the queue.
+   */
+  async function finishDetailPage(state) {
+    var month = state.current;
+    var delay = state.job.delay || DEFAULT_DELAY;
+    await new Promise(function (resolve) { setTimeout(resolve, 2000); });
+    await waitForIdle({ timeout: 15000 });
+
+    var detail = await waitForControl(PORTAL_SELECTORS.text.detailActions, 30000);
+    if (detail) {
+      log("Detail page open, clicking " + detail.label.toLowerCase() + ".", "step");
+      realClick(detail.node);
+      await sleep(delay);
+      await waitForIdle();
+      state.completed = (state.completed || []).concat([month]);
+      log(month + " handled.", "ok");
+    } else {
+      state.failed = (state.failed || []).concat([month]);
+      log(month + ": no download button on the detail page. Download it by hand.", "error");
+    }
+    state.current = null;
+    state.stage = null;
+    await saveState(state);
+    progress((state.completed || []).length + (state.failed || []).length, state.job.months.length);
+
+    if (!pendingMonths(state).length) {
+      state.status = "finished";
+      await saveState(state);
+      push({ type: "JOB_EVENT", event: "finished", level: "ok",
+             message: "Done. " + state.completed.length + " succeeded, " +
+                      (state.failed || []).length + " failed." });
+    }
+
+    /* Back to the dashboard. If that reloads the page, the next load resumes;
+     * if it is an in-page route change, continue from here. */
+    var back = findControlByLabels(PORTAL_SELECTORS.text.backActions);
+    if (back) {
+      realClick(back.node);
+    }
+    await new Promise(function (resolve) { setTimeout(resolve, 6000); });
+    if (state.status !== "running") {
+      return;
+    }
+    if (onDashboard()) {
+      runJob(state);
+    } else {
+      location.href = "https://return.gst.gov.in/returns/auth/dashboard";
+    }
+  }
+
   async function resumeIfNeeded() {
     var state = await loadState();
     if (!state || state.status !== "running" || !state.job) {
@@ -899,6 +961,11 @@
 
     /* The period that was in flight when the page navigated has no result
      * recorded. Count it as failed so the job cannot loop on it forever. */
+    if (state.current && state.stage === "detail") {
+      await finishDetailPage(state);
+      return;
+    }
+
     if (state.current) {
       state.failed = (state.failed || []).concat([state.current]);
       log("Page navigated during " + state.current + ", marking it as needing a manual check.", "warn");
