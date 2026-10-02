@@ -105,7 +105,12 @@
        * direct download and fall back only when it is absent. */
       downloadActions: ["DOWNLOAD"],
       prepareOfflineActions: ["PREPARE OFFLINE", "GENERATE", "GENERATE FILE"],
-      noRecords: ["NO RECORDS FOUND", "NO DATA"]
+      noRecords: ["NO RECORDS FOUND", "NO DATA"],
+      /* Second page, opened by the tile's DOWNLOAD button: the button that
+       * actually produces the file. Seen on the live portal for GSTR-1. */
+      detailActions: ["DOWNLOAD FILED (PDF)", "DOWNLOAD FILED", "GENERATE EXCEL FILE TO DOWNLOAD",
+                      "GENERATE JSON FILE TO DOWNLOAD", "DOWNLOAD FILE"],
+      backActions: ["BACK"]
     },
 
     /* Values the portal expects in its dropdowns. TODO placeholder: confirm
@@ -464,6 +469,33 @@
     return null;
   }
 
+  /* First visible button or link anywhere on the page whose text contains one
+   * of the labels, tried in label order. */
+  function findControlByLabels(labels) {
+    var nodes = document.querySelectorAll("button, a");
+    for (var l = 0; l < labels.length; l++) {
+      var wanted = normalize(labels[l]);
+      for (var i = 0; i < nodes.length; i++) {
+        if (isVisible(nodes[i]) && normalize(nodes[i].textContent).indexOf(wanted) !== -1) {
+          return { node: nodes[i], label: wanted };
+        }
+      }
+    }
+    return null;
+  }
+
+  async function waitForControl(labels, timeout) {
+    var deadline = Date.now() + timeout;
+    while (Date.now() < deadline) {
+      var hit = findControlByLabels(labels);
+      if (hit) {
+        return hit;
+      }
+      await sleep(ABORT_TICK);
+    }
+    return null;
+  }
+
   /* ------------------------------------------------------------------ */
   /* Job state persistence                                               */
   /* ------------------------------------------------------------------ */
@@ -635,9 +667,18 @@
     await sleep(job.delay);
     await waitForIdle();
 
+    /* The tile button opens a detail page with the real download button. */
+    var detail = await waitForControl(PORTAL_SELECTORS.text.detailActions, 15000);
+    if (detail) {
+      log("Detail page open, clicking " + detail.label.toLowerCase() + ".", "step");
+      realClick(detail.node);
+      await sleep(job.delay);
+      await waitForIdle();
+    }
+
     /* Some flows land on the offline screen, which needs a second click and
      * navigates away from the dashboard. */
-    var generate = await waitForElementOptional(PORTAL_SELECTORS.offlineGenerateButton, {
+    var generate = detail ? null : await waitForElementOptional(PORTAL_SELECTORS.offlineGenerateButton, {
       timeout: 8000
     });
     if (generate) {
@@ -663,6 +704,13 @@
     if (busyPhrase) {
       log(month + ": portal says the file is still generating (\"" + busyPhrase +
           "\"). Come back in about 20 minutes and run this period again.", "warn");
+    }
+
+    var back = findControlByLabels(PORTAL_SELECTORS.text.backActions);
+    if (back && !onDashboard()) {
+      realClick(back.node);
+      await sleep(job.delay);
+      await waitForIdle();
     }
 
     log(month + " handled.", "ok");
