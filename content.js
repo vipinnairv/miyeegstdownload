@@ -662,7 +662,10 @@
     log("Financial year set to " + job.financialYear + ".", "step");
     await sleep(job.delay);
 
-    if (job.filerType === "qrmp") {
+    /* The portal shows a Quarter dropdown for monthly and QRMP filers alike,
+     * and the Period list only fills once a quarter is chosen. Derive the
+     * quarter from the month (May -> Quarter 1) whenever the dropdown exists. */
+    {
       var quarterKey = QUARTER_OF_MONTH[month];
       var quarterLabel = PORTAL_SELECTORS.quarterLabels[quarterKey];
       var quarterSelect = await waitForElementOptional(PORTAL_SELECTORS.quarterSelect, {
@@ -676,15 +679,21 @@
         log("Quarter set to " + quarterLabel + ".", "step");
         await sleep(job.delay);
       } else {
-        log("Quarter dropdown not present, continuing as a monthly filer.", "warn");
+        log("No Quarter dropdown on this page, selecting the period directly.", "info");
       }
     }
 
     var periodSelect = await waitForElement(PORTAL_SELECTORS.periodSelect, {
       label: "period dropdown"
     });
-    if (!setSelectValue(periodSelect, month)) {
-      throw new Error("Period " + month + " is not in the dropdown");
+    /* The Period list refills after the quarter changes; give it time. */
+    var periodDeadline = Date.now() + 15000;
+    while (!setSelectValue(periodSelect, month)) {
+      if (Date.now() > periodDeadline) {
+        throw new Error("Period " + month + " is not in the dropdown");
+      }
+      await sleep(500);
+      periodSelect = document.querySelector(PORTAL_SELECTORS.periodSelect) || periodSelect;
     }
     log("Period set to " + month + ".", "step");
     await sleep(job.delay);
