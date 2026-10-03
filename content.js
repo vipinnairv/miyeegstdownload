@@ -117,8 +117,11 @@
       noRecords: ["NO RECORDS FOUND", "NO DATA"],
       /* Second page, opened by the tile's DOWNLOAD button: the button that
        * actually produces the file. Seen on the live portal for GSTR-1. */
-      detailActions: ["DOWNLOAD GSTR-2B DETAILS (EXCEL)", "DOWNLOAD FILED (PDF)", "DOWNLOAD FILED", "GENERATE EXCEL FILE TO DOWNLOAD",
+      detailActions: ["DOWNLOAD GSTR-2B DETAILS (EXCEL)", "DOWNLOAD FILED (PDF)", "DOWNLOAD FILED", "DOWNLOAD PDF", "DOWNLOAD (PDF)", "GENERATE EXCEL FILE TO DOWNLOAD",
                       "GENERATE JSON FILE TO DOWNLOAD", "DOWNLOAD FILE"],
+      /* Clicked first when the detail page has no download button yet:
+       * monthly GSTR-1 goes VIEW, then VIEW SUMMARY, then DOWNLOAD PDF. */
+      intermediateActions: ["VIEW SUMMARY"],
       backActions: ["BACK"]
     },
 
@@ -441,10 +444,12 @@
         return all.indexOf(code) === idx;
       });
       if (codes.length === 1 && codes[0] === wanted && findTileAction(el, returnType)) {
-        /* GSTR-2B has a monthly and a quarterly tile. Always prefer the
-         * "for the quarter" one; use the monthly one only when the page has
-         * no quarterly tile. */
-        if (wanted !== "GSTR2B" || normalize(el.textContent).indexOf("QUARTER") !== -1) {
+        /* GSTR-2B has a monthly and a quarterly tile. QRMP filers get the
+         * "for the quarter" tile, monthly filers the "of/for the month" one;
+         * the other tile is used only when the preferred one is missing. */
+        var qrmp = runtime.state && runtime.state.job && runtime.state.job.filerType === "qrmp";
+        if (wanted !== "GSTR2B" ||
+            normalize(el.textContent).indexOf(qrmp ? "QUARTER" : "MONTH") !== -1) {
           return el;
         }
         if (!fallback) {
@@ -506,12 +511,38 @@
     return null;
   }
 
-  async function waitForControl(labels, timeout) {
+  /*
+   * On the page a tile's VIEW opens: click the download button, stepping
+   * through VIEW SUMMARY first when that is the only way forward. The step is
+   * saved, so if VIEW SUMMARY reloads the page the next load goes straight to
+   * the download. Returns the clicked control, or null.
+   */
+  async function completeDetailFlow(delay, timeout) {
+    var t = PORTAL_SELECTORS.text;
     var deadline = Date.now() + timeout;
+    var stepped = !!(runtime.state && runtime.state.stage === "summary");
     while (Date.now() < deadline) {
-      var hit = findControlByLabels(labels);
+      var hit = findControlByLabels(t.detailActions);
       if (hit) {
+        log("Clicking " + hit.label.toLowerCase() + ".", "step");
+        realClick(hit.node);
+        await sleep(delay);
+        await waitForIdle();
         return hit;
+      }
+      var mid = stepped ? null : findControlByLabels(t.intermediateActions);
+      if (mid) {
+        stepped = true;
+        if (runtime.state) {
+          runtime.state.stage = "summary";
+          await saveState(runtime.state);
+        }
+        log("Clicking " + mid.label.toLowerCase() + ".", "step");
+        realClick(mid.node);
+        await sleep(delay);
+        await waitForIdle();
+        deadline = Date.now() + timeout;
+        continue;
       }
       await sleep(ABORT_TICK);
     }
@@ -732,13 +763,7 @@
 
     /* The tile button opens a detail page with the real download button. */
     var direct = PORTAL_SELECTORS.text.directDownload.indexOf(job.returnType) !== -1;
-    var detail = direct ? null : await waitForControl(PORTAL_SELECTORS.text.detailActions, 15000);
-    if (detail) {
-      log("Detail page open, clicking " + detail.label.toLowerCase() + ".", "step");
-      realClick(detail.node);
-      await sleep(job.delay);
-      await waitForIdle();
-    }
+    var detail = direct ? null : await completeDetailFlow(job.delay, 15000);
 
     /* Some flows land on the offline screen, which needs a second click and
      * navigates away from the dashboard. */
@@ -963,12 +988,9 @@
     await new Promise(function (resolve) { setTimeout(resolve, 2000); });
     await waitForIdle({ timeout: 15000 });
 
-    var detail = await waitForControl(PORTAL_SELECTORS.text.detailActions, 30000);
+    runtime.state = state;
+    var detail = await completeDetailFlow(delay, 30000);
     if (detail) {
-      log("Detail page open, clicking " + detail.label.toLowerCase() + ".", "step");
-      realClick(detail.node);
-      await sleep(delay);
-      await waitForIdle();
       state.completed = (state.completed || []).concat([month]);
       log(month + " handled.", "ok");
     } else {
@@ -1014,7 +1036,7 @@
 
     /* The period that was in flight when the page navigated has no result
      * recorded. Count it as failed so the job cannot loop on it forever. */
-    if (state.current && state.stage === "detail") {
+    if (state.current && (state.stage === "detail" || state.stage === "summary")) {
       await finishDetailPage(state);
       return;
     }
