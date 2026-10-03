@@ -59,8 +59,9 @@ dependencies.
 3. Choose the financial year, the return type, and tick the periods you want.
 4. Choose **Monthly** or **QRMP** as the filer type. QRMP adds the quarter
    dropdown step.
-5. Set the step delay. The default is 4000ms and the minimum accepted is
-   3000ms. Raise it if the portal is slow or if you see timeouts.
+5. "Pause between periods" defaults to 2000ms (minimum 1000ms). Steps inside a
+   period no longer use fixed delays: each waits for the portal's own signal
+   (options loaded, loading overlay gone, download started).
 6. Click **Start** and leave the tab in the foreground. Watch the log pane.
 7. **Stop** aborts within about a quarter of a second, because the abort flag is
    checked inside the sleep helper rather than only between periods.
@@ -179,17 +180,15 @@ time immediately after a click.
 
 ## Troubleshooting
 
-**"No content script on the page, injecting it now."**
-Normal after reloading the extension. The popup pings the page and falls back to
-`chrome.scripting.executeScript`. `content.js` guards against double injection
-with `window.__gstBulkDownloaderLoaded`.
+**"The GST tab needs a refresh"**
+Normal right after installing or reloading the extension: tabs opened before
+that do not have the content script yet. Press F5 on the GST tab once.
 
 **"Timed out waiting for ..."**
 The named selector no longer matches, or the portal was simply slow. A period
 that fails on a timeout is retried once after a longer cooldown before it is
 marked failed, so a single warning line followed by a success is normal. If the
-retry times out too, run the checklist entry for the named selector, or raise
-the step delay.
+retry times out too, run the checklist entry for the named selector.
 
 **A period is marked as needing a manual check.**
 The page navigated while that period was in flight. The resume logic records it
@@ -241,3 +240,17 @@ python gst_downloader.py --fy 2024-25 --months April May --returns GSTR-2B
 `RETURN_SPECS`, phrase lists) are relative XPaths on visible text and are best
 guesses; confirm each once in DevTools and adjust them in that one section.
 The extension also gained a GSTR-2B option and an "in progress" warning.
+
+## Chrome Web Store
+
+- Permissions are limited to `storage`, `downloads` and `https://*.gst.gov.in/*`.
+  No `scripting`, `tabs` or `activeTab`, and no network requests of any kind.
+- `./package.sh` builds the upload ZIP with only the extension files (the
+  Python script, guide and README are left out).
+- Privacy policy: [`PRIVACY.md`](PRIVACY.md). With GitHub Pages enabled
+  (Settings > Pages > Deploy from branch `main`, folder `/`), it is served at
+  `https://vipinnairv.github.io/miyeegstdownload/PRIVACY`.
+- Architecture: the job loop runs in `content.js` inside the GST tab and keeps
+  its progress in `chrome.storage.local`, so it survives page reloads. The
+  service worker (`background.js`) holds no in-memory state; it only names
+  downloads and records when one starts, reading everything from storage.

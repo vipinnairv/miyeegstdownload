@@ -149,10 +149,10 @@ function setProgress(done, total) {
 function readDelay() {
   var raw = parseInt(el.delay.value, 10);
   if (isNaN(raw)) {
-    raw = 4000;
+    raw = 2000;
   }
-  if (raw < 3000) {
-    raw = 3000;
+  if (raw < 1000) {
+    raw = 1000;
   }
   if (raw > 15000) {
     raw = 15000;
@@ -181,42 +181,16 @@ function sendToTab(tabId, payload) {
   });
 }
 
-function injectContentScript(tabId) {
-  return new Promise(function (resolve) {
-    chrome.scripting.executeScript(
-      { target: { tabId: tabId }, files: ["content.js"] },
-      function () {
-        if (chrome.runtime.lastError) {
-          resolve({ ok: false, error: chrome.runtime.lastError.message });
-          return;
-        }
-        resolve({ ok: true });
-      }
-    );
-  });
-}
-
-/* Probe the content script, injecting it if nothing answers the PING. */
 async function ensureContentScript(tabId) {
   var probe = await sendToTab(tabId, { type: "PING" });
   if (probe && probe.ok) {
     return true;
   }
-  log("No content script on the page, injecting it now.", "warn");
-  var injected = await injectContentScript(tabId);
-  if (!injected.ok) {
-    log("Injection failed: " + injected.error, "error");
-    return false;
-  }
-  await new Promise(function (r) {
-    setTimeout(r, 300);
-  });
-  var second = await sendToTab(tabId, { type: "PING" });
-  if (!second || !second.ok) {
-    log("Content script still not responding: " + (second && second.error), "error");
-    return false;
-  }
-  return true;
+  /* No "scripting" permission: the content script is declared in the
+   * manifest and loads with the page. A tab opened before the extension was
+   * installed or reloaded just needs one refresh. */
+  log("The GST tab needs a refresh: press F5 on it once, then click Start again.", "error");
+  return false;
 }
 
 var DASHBOARD_URL = "https://return.gst.gov.in/returns/auth/dashboard";
@@ -323,7 +297,7 @@ async function restoreState() {
       }
       el.returnType.value = state.job.returnType;
       el.filerType.value = state.job.filerType || "monthly";
-      el.delay.value = String(state.job.delay || 4000);
+      el.delay.value = String(state.job.delay || 2000);
       var boxes = el.months.querySelectorAll("input.month-box");
       for (var i = 0; i < boxes.length; i++) {
         boxes[i].checked = state.job.months.some(function (key) {

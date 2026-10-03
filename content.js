@@ -3,7 +3,9 @@
 /*
  * MiyeeIndia GST Return Downloader by Vipin Nair, page engine.
  *
- * Runs on gst.gov.in. Drives the Returns Dashboard form, waits for the AJAX
+ * Runs on gst.gov.in only, entirely in the user's browser. It makes no
+ * network requests of its own and sends nothing anywhere: it only clicks the
+ * portal's own controls. Drives the Returns Dashboard form, waits for the AJAX
  * tile grid, then clicks the download control on the tile that matches the
  * requested return type.
  *
@@ -13,8 +15,7 @@
 
 (function () {
 
-  /* Guard against double injection. The manifest declares this file as a
-   * content script and the popup can also inject it with chrome.scripting. */
+  /* Guard against running twice in the same page. */
   if (window.__gstBulkDownloaderLoaded) {
     return;
   }
@@ -139,8 +140,14 @@
   /* Constants and state                                                 */
   /* ------------------------------------------------------------------ */
 
-  var MIN_DELAY = 3000;
-  var DEFAULT_DELAY = 4000;
+  /* Pause between periods only, to stay polite to the portal. Every step
+   * inside a period waits on a real DOM signal instead (see settle()). */
+  var MIN_DELAY = 1000;
+  var DEFAULT_DELAY = 2000;
+  /* Minimum time after a click for AngularJS to start its request and show
+   * the loading overlay before we start looking for a quiet DOM. */
+  var SETTLE_MS = 400;
+  var DOWNLOAD_START_TIMEOUT = 20000;
   var ABORT_TICK = 250;
   var WAIT_TIMEOUT = 30000;
   var IDLE_TIMEOUT = 30000;
@@ -315,6 +322,93 @@
     } finally {
       observer.disconnect();
     }
+  }
+
+  /* Poll a predicate until it returns something truthy, or time out. */
+  async function waitFor(predicate, timeout) {
+    var deadline = Date.now() + timeout;
+    while (Date.now() < deadline) {
+      var value = predicate();
+      if (value) {
+        return value;
+      }
+      await sleep(ABORT_TICK);
+    }
+    return null;
+  }
+
+  /*
+   * Replaces fixed step delays. After a click or a dropdown change, give
+   * AngularJS a moment to start its digest/XHR, then wait until the loading
+   * overlay is gone and a MutationObserver has seen no DOM change for a short
+   * quiet window. Fast portal = fast job; slow portal = we simply wait longer.
+   */
+  async function settle(options) {
+    await sleep(SETTLE_MS);
+    await waitForIdle(options || { quietFor: 600 });
+  }
+
+  /*
+   * Resolve once background.js records that the portal started a download
+   * after `since`. This is the real "file is on its way" signal, so we never
+   * leave the page (BACK) before Chrome has picked the file up.
+   */
+  function waitForDownloadStart(since, timeout) {
+    return new Promise(function (resolve) {
+      var done = false;
+      function finish(ok) {
+        if (done) { return; }
+        done = true;
+        try { chrome.storage.onChanged.removeListener(onChange); } catch (e) { /* context gone */ }
+        clearTimeout(timer);
+        resolve(ok);
+      }
+      function onChange(changes, area) {
+        var c = changes.gstLastDownload;
+        if (area === "local" && c && c.newValue > since) {
+          finish(true);
+        }
+      }
+      var timer = setTimeout(function () { finish(false); }, timeout);
+      try {
+        chrome.storage.onChanged.addListener(onChange);
+        chrome.storage.local.get(["gstLastDownload"], function (d) {
+          if (d && d.gstLastDownload > since) { finish(true); }
+        });
+      } catch (e) {
+        finish(false);
+      }
+    });
+  }
+
+  /* Click the control that should produce a file and wait until it starts. */
+  async function clickAndAwaitDownload(node, what) {
+    var since = Date.now();
+    realClick(node);
+    var started = await waitForDownloadStart(since, DOWNLOAD_START_TIMEOUT);
+    if (!started) {
+      log("No download started within " + (DOWNLOAD_START_TIMEOUT / 1000) +
+          "s after " + what + ". Check this period on the portal.", "warn");
+    }
+    await settle();
+    return started;
+  }
+
+  /*
+   * Pick an option in a <select>, re-finding the element and retrying until
+   * AngularJS has filled the option list (it repopulates asynchronously after
+   * the previous dropdown changes, and may redraw the element itself).
+   */
+  async function selectWhenReady(selector, wanted, name, timeout) {
+    var hit = await waitFor(function () {
+      var select = document.querySelector(selector);
+      return select && isVisible(select) && setSelectValue(select, wanted);
+    }, timeout || 15000);
+    if (!hit) {
+      throw new Error(name + " " + wanted + " is not in the dropdown");
+    }
+    log(name + " set to " + wanted + ".", "step");
+    await settle();
   }
 
   /* ------------------------------------------------------------------ */
@@ -517,17 +611,25 @@
    * saved, so if VIEW SUMMARY reloads the page the next load goes straight to
    * the download. Returns the clicked control, or null.
    */
-  async function completeDetailFlow(delay, timeout) {
+  async function completeDetailFlow(timeout) {
     var t = PORTAL_SELECTORS.text;
     var deadline = Date.now() + timeout;
     var stepped = !!(runtime.state && runtime.state.stage === "summary");
+    var generated = false;
     while (Date.now() < deadline) {
-      var hit = findControlByLabels(t.detailActions);
+      /* Once a GENERATE button was clicked, only look for the link it yields. */
+      var hit = findControlByLabels(generated ? t.detailActions.filter(function (l) {
+        return l.indexOf("GENERATE") !== 0;
+      }) : t.detailActions);
       if (hit) {
         log("Clicking " + hit.label.toLowerCase() + ".", "step");
-        realClick(hit.node);
-        await sleep(delay);
-        await waitForIdle();
+        if (hit.label.indexOf("GENERATE") === 0) {
+          generated = true;
+          realClick(hit.node);
+          await settle();
+          continue; /* a DOWNLOAD FILE link should follow */
+        }
+        await clickAndAwaitDownload(hit.node, hit.label.toLowerCase());
         return hit;
       }
       var mid = stepped ? null : findControlByLabels(t.intermediateActions);
@@ -539,8 +641,7 @@
         }
         log("Clicking " + mid.label.toLowerCase() + ".", "step");
         realClick(mid.node);
-        await sleep(delay);
-        await waitForIdle();
+        await settle();
         deadline = Date.now() + timeout;
         continue;
       }
@@ -624,8 +725,7 @@
     var back = document.querySelector(PORTAL_SELECTORS.backToDashboard);
     if (back) {
       realClick(back);
-      await sleep(delay);
-      await waitForIdle();
+      await settle();
     }
     var field = await waitForElementOptional(PORTAL_SELECTORS.financialYearSelect, { timeout: 15000 });
     if (field) {
@@ -653,50 +753,26 @@
   }
 
   async function selectPeriod(job, month) {
-    var fySelect = await waitForElement(PORTAL_SELECTORS.financialYearSelect, {
+    await waitForElement(PORTAL_SELECTORS.financialYearSelect, {
       label: "financial year dropdown"
     });
-    if (!setSelectValue(fySelect, job.financialYear)) {
-      throw new Error("Financial year " + job.financialYear + " is not in the dropdown");
-    }
-    log("Financial year set to " + job.financialYear + ".", "step");
-    await sleep(job.delay);
+    await selectWhenReady(PORTAL_SELECTORS.financialYearSelect, job.financialYear, "Financial year");
 
     /* The portal shows a Quarter dropdown for monthly and QRMP filers alike,
      * and the Period list only fills once a quarter is chosen. Derive the
      * quarter from the month (May -> Quarter 1) whenever the dropdown exists. */
-    {
-      var quarterKey = QUARTER_OF_MONTH[month];
-      var quarterLabel = PORTAL_SELECTORS.quarterLabels[quarterKey];
-      var quarterSelect = await waitForElementOptional(PORTAL_SELECTORS.quarterSelect, {
-        timeout: 8000,
-        label: "quarter dropdown"
-      });
-      if (quarterSelect) {
-        if (!setSelectValue(quarterSelect, quarterLabel)) {
-          throw new Error("Quarter " + quarterLabel + " is not in the dropdown");
-        }
-        log("Quarter set to " + quarterLabel + ".", "step");
-        await sleep(job.delay);
-      } else {
-        log("No Quarter dropdown on this page, selecting the period directly.", "info");
-      }
+    var quarterLabel = PORTAL_SELECTORS.quarterLabels[QUARTER_OF_MONTH[month]];
+    var quarterSelect = await waitForElementOptional(PORTAL_SELECTORS.quarterSelect, {
+      timeout: 8000,
+      label: "quarter dropdown"
+    });
+    if (quarterSelect) {
+      await selectWhenReady(PORTAL_SELECTORS.quarterSelect, quarterLabel, "Quarter");
+    } else {
+      log("No Quarter dropdown on this page, selecting the period directly.", "info");
     }
 
-    var periodSelect = await waitForElement(PORTAL_SELECTORS.periodSelect, {
-      label: "period dropdown"
-    });
-    /* The Period list refills after the quarter changes; give it time. */
-    var periodDeadline = Date.now() + 15000;
-    while (!setSelectValue(periodSelect, month)) {
-      if (Date.now() > periodDeadline) {
-        throw new Error("Period " + month + " is not in the dropdown");
-      }
-      await sleep(500);
-      periodSelect = document.querySelector(PORTAL_SELECTORS.periodSelect) || periodSelect;
-    }
-    log("Period set to " + month + ".", "step");
-    await sleep(job.delay);
+    await selectWhenReady(PORTAL_SELECTORS.periodSelect, month, "Period");
   }
 
   async function runSearch(job) {
@@ -705,9 +781,7 @@
     });
     realClick(button);
     log("Search clicked, waiting for the tile grid.", "step");
-    /* Blind settle time only, the polling helpers do the real waiting. */
-    await sleep(job.delay);
-    await waitForIdle();
+    await settle();
     /* Wait for the requested tile itself, by text, instead of a class name. */
     var deadline = Date.now() + WAIT_TIMEOUT;
     while (!findReturnTile(job.returnType)) {
@@ -766,13 +840,16 @@
       runtime.state.stage = "detail";
       await saveState(runtime.state);
     }
-    realClick(action.node);
-    await sleep(job.delay);
-    await waitForIdle();
+    var direct = PORTAL_SELECTORS.text.directDownload.indexOf(job.returnType) !== -1;
+    if (direct) {
+      await clickAndAwaitDownload(action.node, "the " + job.returnType + " download");
+    } else {
+      realClick(action.node);
+      await settle();
+    }
 
     /* The tile button opens a detail page with the real download button. */
-    var direct = PORTAL_SELECTORS.text.directDownload.indexOf(job.returnType) !== -1;
-    var detail = direct ? null : await completeDetailFlow(job.delay, 15000);
+    var detail = direct ? null : await completeDetailFlow(15000);
 
     /* Some flows land on the offline screen, which needs a second click and
      * navigates away from the dashboard. */
@@ -782,14 +859,12 @@
     if (generate) {
       log("Offline screen detected, requesting file generation.", "step");
       realClick(generate);
-      await sleep(job.delay);
-      await waitForIdle();
+      await settle();
       var link = await waitForElementOptional(PORTAL_SELECTORS.offlineDownloadLink, {
         timeout: 20000
       });
       if (link) {
-        realClick(link);
-        await sleep(job.delay);
+        await clickAndAwaitDownload(link, "the offline download link");
       } else {
         log("Generation started but no download link appeared yet for " + month + ".", "warn");
       }
@@ -807,8 +882,7 @@
     var back = findControlByLabels(PORTAL_SELECTORS.text.backActions);
     if (back && !onDashboard()) {
       realClick(back.node);
-      await sleep(job.delay);
-      await waitForIdle();
+      await settle();
     }
 
     log(month + " handled.", "ok");
@@ -993,12 +1067,10 @@
    */
   async function finishDetailPage(state) {
     var month = state.current;
-    var delay = state.job.delay || DEFAULT_DELAY;
-    await new Promise(function (resolve) { setTimeout(resolve, 2000); });
-    await waitForIdle({ timeout: 15000 });
-
     runtime.state = state;
-    var detail = await completeDetailFlow(delay, 30000);
+    await settle({ timeout: 15000, quietFor: 800 });
+
+    var detail = await completeDetailFlow(30000);
     if (detail) {
       state.completed = (state.completed || []).concat([month]);
       log(month + " handled.", "ok");
@@ -1025,7 +1097,9 @@
     if (back) {
       realClick(back.node);
     }
-    await new Promise(function (resolve) { setTimeout(resolve, 6000); });
+    /* If BACK reloads the page this script dies here and the next load
+     * resumes; if it is an in-page route change, wait for the form. */
+    await waitFor(onDashboard, 15000);
     if (state.status !== "running") {
       return;
     }
@@ -1066,10 +1140,7 @@
 
     log("Resuming saved job, " + queue.length + " period(s) left.", "info");
     /* Let the new page settle before touching any control. */
-    await new Promise(function (resolve) {
-      setTimeout(resolve, 2000);
-    });
-    await waitForIdle({ timeout: 15000 });
+    await settle({ timeout: 15000, quietFor: 800 });
     runJob(state);
   }
 

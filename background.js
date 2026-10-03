@@ -6,6 +6,11 @@
  * e.g. GST/GSTR-1/GSTR-1_2025-26_April.pdf, or ..._Q1.pdf for QRMP filers.
  * using the job state that content.js keeps in chrome.storage.local.
  * Downloads outside a running job keep their normal name and folder.
+ *
+ * MV3 note: this service worker keeps no state in memory. Every event reads
+ * the job from chrome.storage.local, so Chrome can stop the worker whenever
+ * it is idle (after ~30 s) without losing anything. The job loop itself runs
+ * in content.js inside the GST tab, which is not subject to that limit.
  */
 
 var STORAGE_KEY = "gstJobState";
@@ -29,6 +34,8 @@ chrome.downloads.onDeterminingFilename.addListener(function (item, suggest) {
     suggest();
     return false;
   }
+  /* Tell content.js a portal download has started (local storage only). */
+  chrome.storage.local.set({ gstLastDownload: Date.now() });
   chrome.storage.local.get([STORAGE_KEY], function (data) {
     var state = data && data[STORAGE_KEY];
     if (!state || state.status !== "running" || !state.current || !state.job) {

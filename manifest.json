@@ -2,12 +2,10 @@
   "manifest_version": 3,
   "author": "Vipin Nair",
   "name": "MiyeeIndia GST Return Downloader",
-  "version": "1.1.0",
-  "description": "MiyeeIndia GST Return Downloader by Vipin Nair. Bulk downloads GSTR-1, GSTR-2B and GSTR-3B from the GST portal.",
-  "minimum_chrome_version": "102",
+  "version": "1.2.0",
+  "description": "Free, open-source helper that bulk downloads your GSTR-1, GSTR-2B and GSTR-3B from the GST portal. Runs only in your browser; collects no data.",
+  "minimum_chrome_version": "110",
   "permissions": [
-    "activeTab",
-    "scripting",
     "storage",
     "downloads"
   ],
