@@ -1,6 +1,20 @@
 # MiyeeIndia GST Return Downloader
 
-by Vipin Nair
+by Vipin Nair · Free and open source
+
+**Why this tool exists:** downloading GST returns month by month is slow and
+tiresome, especially collecting every GSTR-2B for the annual ITC
+reconciliation. This tool automates those clicks for GSTR-1, GSTR-2B and
+GSTR-3B.
+
+**Privacy (designed in line with the Digital Personal Data Protection Act,
+2023):** the tool runs entirely inside your own browser. You log in to
+gst.gov.in yourself; your user ID, password and OTP are never seen, stored or
+shared by the tool. No personal data is collected, and nothing is sent to any
+server other than the GST portal you are already using.
+
+**Disclaimer:** created on 02.10.2026. The GST portal may change its layout at
+any time, which can stop the tool from working properly until it is updated.
 
 A Chrome and Edge Manifest V3 extension that automates the repetitive part of
 pulling GSTR-1 and GSTR-3B returns from the Indian GST portal
